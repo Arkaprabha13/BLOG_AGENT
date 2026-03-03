@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ post.title }} — {{ site_name }}</title>
+    <meta name="description" content="{{ post.teaser }}" />
+    <link rel="canonical" href="{{ base_url }}/blog/{{ post.slug }}" />
+    <!-- Open Graph -->
+    <meta property="og:title" content="{{ post.title }}" />
+    <meta property="og:description" content="{{ post.teaser }}" />
+    <meta property="og:url" content="{{ base_url }}/blog/{{ post.slug }}" />
+    <meta property="og:type" content="article" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="stylesheet" href="/static/css/post.css" />
+</head>
+
+<body class="post-page">
+    <!-- ─── NAV ─── -->
+    <nav class="navbar">
+        <div class="nav-inner">
+            <a href="/" class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">{{ site_name }}</span>
+            </a>
+            <div class="nav-right">
+                <a href="/" class="back-link">← All Posts</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ─── POST HEADER ─── -->
+    <header class="post-hero">
+        <div class="hero-glow glow-1"></div>
+        <div class="post-hero-inner">
+            <div class="post-meta-top">
+                {% if post.niche %}<span class="niche-badge">{{ post.niche }}</span>{% endif %}
+                <span class="pub-date">{{ post.publish_date[:10] if post.publish_date else '' }}</span>
+            </div>
+            <h1 class="post-title">{{ post.title or post.topic }}</h1>
+            <p class="post-teaser">{{ post.teaser }}</p>
+            <div class="post-chips">
+                {% for tag in post.tags %}
+                <span class="tag">#{{ tag }}</span>
+                {% endfor %}
+            </div>
+            <div class="post-syndication">
+                {% if post.devto_url %}
+                <a href="{{ post.devto_url }}" target="_blank" rel="noopener" class="syn-link devto">Dev.to ↗</a>
+                {% endif %}
+                {% if post.hashnode_url %}
+                <a href="{{ post.hashnode_url }}" target="_blank" rel="noopener" class="syn-link hashnode">Hashnode
+                    ↗</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <!-- ─── POST CONTENT ─── -->
+    <div class="post-layout">
+        <!-- TOC sidebar (auto-populated by JS) -->
+        <aside class="toc-sidebar" id="toc-sidebar">
+            <p class="toc-title">Contents</p>
+            <nav id="toc-nav"></nav>
+        </aside>
+
+        <article class="post-body prose" id="post-content">
+            {{ post.html_content | safe }}
+        </article>
+    </div>
+
+    <!-- ─── FOOTER ─── -->
+    <footer class="site-footer post-footer">
+        <p>Generated autonomously by <strong>{{ site_name }}</strong> · Verified with <strong>PageIndex RAG</strong></p>
+        <div class="footer-syndication">
+            {% if post.devto_url %}<a href="{{ post.devto_url }}" target="_blank" rel="canonical noopener">Read on
+                Dev.to</a>{% endif %}
+            {% if post.hashnode_url %}<a href="{{ post.hashnode_url }}" target="_blank" rel="canonical noopener">Read on
+                Hashnode</a>{% endif %}
+        </div>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>

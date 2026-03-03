@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ site_name }} — AI-Powered Blog Empire</title>
+  <meta name="description" content="Autonomous AI-generated technical content — fresh, SEO-optimized, and fact-verified." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <!-- ─── NAV ─── -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="/" class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">{{ site_name }}</span>
+      </a>
+      <div class="nav-right">
+        <span class="badge-live">LIVE</span>
+        <span class="nav-hint">Autonomous Content Engine</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ─── HERO ─── -->
+  <header class="hero">
+    <div class="hero-glow glow-1"></div>
+    <div class="hero-glow glow-2"></div>
+    <div class="hero-inner">
+      <div class="hero-tag">Powered by Qwen3-32B × LangGraph</div>
+      <h1 class="hero-title">Autonomous Blog<br/><span class="gradient-text">Empire</span></h1>
+      <p class="hero-sub">Self-healing SEO content — generated, verified, and syndicated by AI. Zero human intervention.</p>
+      <div class="hero-stats">
+        <div class="stat"><span class="stat-n" id="total-posts">{{ blogs | length }}</span><span class="stat-l">Posts Published</span></div>
+        <div class="stat-div"></div>
+        <div class="stat"><span class="stat-n">∞</span><span class="stat-l">Autonomous Loops</span></div>
+        <div class="stat-div"></div>
+        <div class="stat"><span class="stat-n">3</span><span class="stat-l">Platforms Syndicated</span></div>
+      </div>
+    </div>
+    <div class="scroll-hint">↓ Latest Posts</div>
+  </header>
+
+  <!-- ─── POSTS GRID ─── -->
+  <main class="main-content">
+    {% if blogs %}
+    <div class="posts-grid">
+      {% for post in blogs %}
+      <article class="post-card" style="--delay: {{ loop.index0 * 60 }}ms">
+        <div class="card-header">
+          <div class="card-meta-row">
+            {% if post.niche %}
+            <span class="niche-badge">{{ post.niche }}</span>
+            {% endif %}
+            <span class="views-badge">👁 {{ post.views }} views</span>
+          </div>
+          <div class="seo-bar-wrap">
+            <span class="seo-label">SEO</span>
+            <div class="seo-bar"><div class="seo-fill" style="width:{{ post.seo_score }}%"></div></div>
+            <span class="seo-val">{{ "%.0f"|format(post.seo_score) }}</span>
+          </div>
+        </div>
+        <h2 class="card-title">
+          <a href="/blog/{{ post.slug }}">{{ post.title or post.topic }}</a>
+        </h2>
+        <p class="card-teaser">{{ post.teaser or "Click to read the full AI-generated deep dive." }}</p>
+        <div class="card-footer">
+          <div class="tag-row">
+            {% for tag in post.tags[:4] %}
+            <span class="tag">#{{ tag }}</span>
+            {% endfor %}
+          </div>
+          <a href="/blog/{{ post.slug }}" class="read-btn">Read →</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">🤖</div>
+      <h2>No posts yet</h2>
+      <p>Use the Telegram bot command <code>/generate [topic] [niche]</code> to kick off the autonomous content engine.</p>
+    </div>
+    {% endif %}
+  </main>
+
+  <!-- ─── FOOTER ─── -->
+  <footer class="site-footer">
+    <p>Built with <strong>FastAPI × LangGraph × Groq (Qwen3-32B) × PageIndex</strong></p>
+    <p class="footer-sub">Self-healing • Fact-verified • Syndicated to Dev.to & Hashnode</p>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+# Blog Empire — Render Deployment Config
+# docs: https://render.com/docs/render-yaml
+
+services:
+  - type: web
+    name: blog-empire
+    runtime: python
+    region: singapore   # closest to India; change to: ohio, frankfurt, oregon
+    plan: free          # upgrade to 'starter' ($7/mo) for persistent disk + no sleep
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /api/health
+
+    # Environment variables — set these in Render dashboard
+    # (never commit real values here)
+    envVars:
+      - key: APP_NAME
+        value: Blog Empire
+      - key: APP_HOST
+        value: 0.0.0.0
+      - key: APP_PORT
+        value: "10000"        # Render assigns port via PORT env var; uvicorn reads this
+      - key: BASE_URL
+        sync: false           # set to your Render URL: https://blog-empire.onrender.com
+      - key: DATABASE_URL
+        sync: false           # set in Render dashboard — your Nhost PostgreSQL URL
+      - key: GROQ_API_KEY
+        sync: false           # set in Render dashboard
+      - key: GROQ_MODEL
+        value: qwen/qwen3-32b
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false           # set in Render dashboard
+      - key: TELEGRAM_ADMIN_CHAT_ID
+        sync: false           # set in Render dashboard
+      - key: DEVTO_API_KEY
+        sync: false
+      - key: HASHNODE_API_TOKEN
+        sync: false
+      - key: HASHNODE_PUBLICATION_ID
+        sync: false
+      - key: SEO_THRESHOLD_VIEWS
+        value: "100"
+      - key: SEO_THRESHOLD_SCORE
+        value: "50.0"
+      - key: MAX_REVISIONS
+        value: "3"
+
+    # Persistent disk — REQUIRED for SQLite to survive restarts
+    # Only available on paid plans (Starter $7/mo or higher)
+    # disk:
+    #   name: blog-empire-data
+    #   mountPath: /data
+    #   sizeGB: 1
+    # After enabling disk, set DB_PATH=/data/blog_empire.db in envVars
+
+# ──────────────────────────────────────────────────────────────────────────
+# DATABASE:
+#   Data lives in Nhost's managed PostgreSQL — no persistent disk needed!
+#   The DATABASE_URL env var connects directly to Nhost's cloud Postgres.
+#   Free tier on both Render (web service) and Nhost (database) → $0/month.
+#
+# FREE TIER LIMITATIONS:
+#   - Render service sleeps after 15 min inactivity (Telegram bot will wake it)
+#   - 512 MB RAM — enough for this stack
+#   - Nhost free tier: 100MB PostgreSQL storage, plenty for a blog
+# ──────────────────────────────────────────────────────────────────────────

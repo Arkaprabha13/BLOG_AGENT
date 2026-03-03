@@ -1,0 +1,16 @@
+# .gitignore for Closed-Loop Autonomous Blog Empire
+.env
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
