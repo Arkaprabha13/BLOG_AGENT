@@ -136,3 +136,35 @@ class DevtoClient:
         except Exception as exc:
             logger.error("Dev.to update exception: %s", exc)
             return {}
+
+    async def get_my_articles(self, per_page: int = 30) -> list[dict]:
+        """Fetch published articles for the authenticated user with stats."""
+        if not self.api_key:
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{DEVTO_API_BASE}/articles/me/published",
+                    headers=self.headers,
+                    params={"per_page": per_page},
+                )
+            if resp.status_code != 200:
+                logger.error("Dev.to get_my_articles failed %d", resp.status_code)
+                return []
+            articles = resp.json()
+            return [
+                {
+                    "id":         a.get("id"),
+                    "title":      a.get("title", ""),
+                    "url":        a.get("url", ""),
+                    "views":      a.get("page_views_count", 0),
+                    "reactions":  a.get("positive_reactions_count", 0),
+                    "comments":   a.get("comments_count", 0),
+                    "published":  a.get("published_at", "")[:10] if a.get("published_at") else "",
+                    "canonical":  a.get("canonical_url", ""),
+                }
+                for a in articles
+            ]
+        except Exception as exc:
+            logger.error("Dev.to get_my_articles exception: %s", exc)
+            return []

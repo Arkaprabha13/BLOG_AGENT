@@ -110,6 +110,118 @@ def _fmt_stats(blogs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+async def _fetch_comprehensive_stats() -> str:
+    """
+    Fetch stats from DB + Hashnode + Dev.to in parallel and compose
+    a rich stats dashboard message.
+    """
+    from database import list_all_blogs, get_blog_count
+    from clients.devto_client import DevtoClient
+    from clients.hashnode_client import HashnodeClient
+
+    # Fetch everything in parallel
+    db_blogs, hn_posts, dt_articles, total = await asyncio.gather(
+        list_all_blogs(limit=30),
+        HashnodeClient().get_my_posts(first=30),
+        DevtoClient().get_my_articles(per_page=30),
+        get_blog_count(),
+        return_exceptions=True,
+    )
+
+    # Safely default on error
+    if isinstance(db_blogs, Exception):    db_blogs = []
+    if isinstance(hn_posts, Exception):    hn_posts = []
+    if isinstance(dt_articles, Exception): dt_articles = []
+    if isinstance(total, Exception):       total = len(db_blogs)
+
+    # Build lookup maps by URL fragment (slug)
+    def _slug_from_url(url: str) -> str:
+        return (url or "").rstrip("/").split("/")[-1].lower()
+
+    hn_map  = {_slug_from_url(p["url"]): p for p in hn_posts}
+    dt_map  = {_slug_from_url(a["url"]): a for a in dt_articles}
+
+    # Aggregate platform totals
+    hn_total_views     = sum(p.get("views", 0) for p in hn_posts)
+    hn_total_reactions = sum(p.get("reactions", 0) for p in hn_posts)
+    hn_total_comments  = sum(p.get("comments", 0) for p in hn_posts)
+    dt_total_views     = sum(a.get("views", 0) for a in dt_articles)
+    dt_total_reactions = sum(a.get("reactions", 0) for a in dt_articles)
+    dt_total_comments  = sum(a.get("comments", 0) for a in dt_articles)
+    db_total_views     = sum(int(b.get("views") or 0) for b in db_blogs)
+
+    lines = [
+        "📊 <b>Blog Empire — Comprehensive Stats</b>\n",
+        f"📚 Total posts: <b>{total}</b>\n",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        "<b>🌐 Platform Totals</b>",
+        f"   🌍 Website views:      <b>{db_total_views}</b>",
+    ]
+    if hn_posts:
+        lines.append(
+            f"   📰 Hashnode:  👁 <b>{hn_total_views}</b>  ❤️ <b>{hn_total_reactions}</b>  💬 <b>{hn_total_comments}</b>"
+        )
+    else:
+        lines.append("   📰 Hashnode:  <i>not connected</i>")
+    if dt_articles:
+        lines.append(
+            f"   📝 Dev.to:    👁 <b>{dt_total_views}</b>  ❤️ <b>{dt_total_reactions}</b>  💬 <b>{dt_total_comments}</b>"
+        )
+    else:
+        lines.append("   📝 Dev.to:    <i>not connected</i>")
+
+    lines.append("\n━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("<b>📄 Per-Post Breakdown</b>\n")
+
+    # Sort DB blogs by website views desc
+    db_blogs_sorted = sorted(db_blogs, key=lambda b: int(b.get("views") or 0), reverse=True)
+
+    for i, b in enumerate(db_blogs_sorted[:10], 1):
+        slug      = b.get("slug", "")
+        title     = _h(b.get("title") or b.get("topic") or "Untitled")
+        db_views  = int(b.get("views") or 0)
+        seo       = float(b.get("seo_score") or 0.0)
+        status    = _h(b.get("status", ""))
+        date      = (b.get("publish_date") or "")[:10]
+        hn_url    = _h(b.get("hashnode_url") or "")
+        dt_url    = _h(b.get("devto_url") or "")
+        main_url  = _h(b.get("main_url") or f"{settings.base_url}/blog/{slug}")
+
+        # Match platform stats
+        hn_data = hn_map.get(slug) or hn_map.get(_slug_from_url(hn_url)) or {}
+        dt_data = dt_map.get(slug) or dt_map.get(_slug_from_url(dt_url)) or {}
+
+        hn_views = hn_data.get("views", 0)
+        hn_reac  = hn_data.get("reactions", 0)
+        hn_comm  = hn_data.get("comments", 0)
+        dt_views = dt_data.get("views", 0)
+        dt_reac  = dt_data.get("reactions", 0)
+        dt_comm  = dt_data.get("comments", 0)
+
+        block = [
+            f"{i}. <b>{title}</b>",
+            f"   📅 {date}  •  <i>{status}</i>  •  SEO {seo:.0f}/100",
+            f"   🌍 Website: 👁 <b>{db_views}</b>",
+        ]
+        if hn_url:
+            block.append(
+                f"   📰 <a href=\"{hn_url}\">Hashnode</a>: "
+                f"👁 <b>{hn_views}</b>  ❤️ {hn_reac}  💬 {hn_comm}"
+            )
+        if dt_url:
+            block.append(
+                f"   📝 <a href=\"{dt_url}\">Dev.to</a>: "
+                f"👁 <b>{dt_views}</b>  ❤️ {dt_reac}  💬 {dt_comm}"
+            )
+        block.append(f"   <a href=\"{main_url}\">🔗 Read</a>  •  🔑 <code>{_h(slug)}</code>")
+        lines.append("\n".join(block) + "\n")
+
+    if not db_blogs:
+        lines.append("📭 <i>No blogs yet. Use /generate to create one!</i>")
+
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # /start — help
 # ---------------------------------------------------------------------------
@@ -232,11 +344,22 @@ async def cmd_view(msg: Message):
 # ---------------------------------------------------------------------------
 @router.message(Command("stats"))
 async def cmd_stats(msg: Message):
-    await msg.answer("🔍 <b>Fetching stats…</b>", parse_mode=ParseMode.HTML)
+    await msg.answer(
+        "📡 <b>Fetching stats from all platforms…</b>\n"
+        "<i>Pulling Website, Hashnode &amp; Dev.to data…</i>",
+        parse_mode=ParseMode.HTML,
+    )
     try:
-        blogs = await fetch_top_blogs(5)
-        await msg.answer(_fmt_stats(blogs), parse_mode=ParseMode.HTML,
-                         disable_web_page_preview=True)
+        text = await _fetch_comprehensive_stats()
+        # Split if too long for one Telegram message
+        if len(text) > 3800:
+            chunks = [text[i:i+3800] for i in range(0, len(text), 3800)]
+            for chunk in chunks:
+                await msg.answer(chunk, parse_mode=ParseMode.HTML,
+                                 disable_web_page_preview=True)
+        else:
+            await msg.answer(text, parse_mode=ParseMode.HTML,
+                             disable_web_page_preview=True)
     except Exception as exc:
         logger.exception("stats command error")
         await msg.answer(f"❌ Error: <code>{_h(str(exc))}</code>",
@@ -490,12 +613,20 @@ async def cmd_agent(msg: Message):
         await cmd_list(msg)
 
     elif intent == "stats":
+        await msg.answer(
+            f"<i>{_h(reply)}</i>\n\n"
+            "📡 <b>Fetching stats from all platforms…</b>",
+            parse_mode=ParseMode.HTML,
+        )
         try:
-            blogs = await fetch_top_blogs(5)
-            await msg.answer(
-                f"<i>{_h(reply)}</i>\n\n" + _fmt_stats(blogs),
-                parse_mode=ParseMode.HTML, disable_web_page_preview=True,
-            )
+            text = await _fetch_comprehensive_stats()
+            if len(text) > 3800:
+                for chunk in [text[i:i+3800] for i in range(0, len(text), 3800)]:
+                    await msg.answer(chunk, parse_mode=ParseMode.HTML,
+                                     disable_web_page_preview=True)
+            else:
+                await msg.answer(text, parse_mode=ParseMode.HTML,
+                                 disable_web_page_preview=True)
         except Exception as exc:
             await msg.answer(f"❌ Stats error: <code>{_h(str(exc))}</code>",
                              parse_mode=ParseMode.HTML)

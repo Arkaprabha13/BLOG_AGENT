@@ -146,3 +146,50 @@ class HashnodeClient:
         except Exception as exc:
             logger.error("Hashnode update error: %s", exc)
             return {}
+
+    async def get_my_posts(self, first: int = 20) -> list[dict]:
+        """Fetch posts from the publication with engagement stats."""
+        if not self.token or not self.publication_id:
+            return []
+        query = """
+        query GetPosts($pubId: ObjectId!, $first: Int!) {
+          publication(id: $pubId) {
+            posts(first: $first) {
+              edges {
+                node {
+                  id
+                  title
+                  url
+                  views
+                  reactionCount
+                  responseCount
+                  publishedAt
+                }
+              }
+            }
+          }
+        }
+        """
+        try:
+            data = await self._gql(query, {"pubId": self.publication_id, "first": first})
+            edges = (
+                data.get("data", {})
+                    .get("publication", {})
+                    .get("posts", {})
+                    .get("edges", [])
+            )
+            return [
+                {
+                    "id":        e["node"].get("id", ""),
+                    "title":     e["node"].get("title", ""),
+                    "url":       e["node"].get("url", ""),
+                    "views":     e["node"].get("views", 0) or 0,
+                    "reactions": e["node"].get("reactionCount", 0) or 0,
+                    "comments":  e["node"].get("responseCount", 0) or 0,
+                    "published": (e["node"].get("publishedAt") or "")[:10],
+                }
+                for e in edges
+            ]
+        except Exception as exc:
+            logger.error("Hashnode get_my_posts error: %s", exc)
+            return []
