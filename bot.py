@@ -794,6 +794,38 @@ async def cmd_agent(msg: Message):
                          parse_mode=ParseMode.HTML)
         asyncio.create_task(_fetch_and_send_trending(msg))
 
+    elif intent == "news":
+        # Fetch live news from real APIs for the requested topic
+        query = topic or "artificial intelligence technology geopolitics"
+        await msg.answer(
+            f"📡 <b>Fetching live news on: {_h(query)}</b>\n"
+            f"<i>Pulling fresh articles from NewsData.io and news APIs…</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        asyncio.create_task(_fetch_and_send_news(msg, query))
+
+    elif intent == "recommend":
+        await msg.answer(
+            "📡 <b>Fetching today's news and curating blog topics…</b>\n"
+            "<i>This may take 10-20 seconds while I read the news for you.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            from scheduler import scheduler
+            suggestions = await scheduler.recommendation_push(manual=True)
+            if not suggestions:
+                await msg.answer(
+                    "⚠️ No suggestions right now.\n"
+                    "Try <code>/trending</code> for free trending topics instead.",
+                    parse_mode=ParseMode.HTML,
+                )
+        except Exception as exc:
+            logger.exception("recommend (agent) error")
+            await msg.answer(
+                f"❌ Recommend error: <code>{_h(str(exc)[:200])}</code>",
+                parse_mode=ParseMode.HTML,
+            )
+
     elif intent == "schedule":
         try:
             from scheduler import scheduler
@@ -803,7 +835,7 @@ async def cmd_agent(msg: Message):
                 f"📅 <b>Scheduler Status</b>\n"
                 f"Running: {'🟢 Yes' if s['running'] else '🔴 No'}\n"
                 f"Daily Target: <code>{s['daily_target']} blogs/day</code>\n"
-                f"Next Run: <code>{_h(s['next_run'] or 'Not scheduled')}</code>\n"
+                f"Next Run: <code>{_h(str(s['next_run'] or 'Not scheduled'))}</code>\n"
                 f"Last Batch: <code>{s['last_count']} blogs</code>",
                 parse_mode=ParseMode.HTML,
             )
@@ -841,6 +873,55 @@ async def _fetch_and_send_trending(msg: Message) -> None:
     except Exception as exc:
         await msg.answer(f"❌ Trending fetch failed: <code>{_h(str(exc))}</code>",
                          parse_mode=ParseMode.HTML)
+
+
+async def _fetch_and_send_news(msg: Message, query: str) -> None:
+    """Fetch live news for a specific topic and format for Telegram."""
+    try:
+        from clients.news_client import NewsClient
+        articles = await NewsClient().fetch_topic(query)
+
+        if not articles:
+            await msg.answer(
+                f"⚠️ <b>No news found for:</b> <code>{_h(query)}</code>\n"
+                "Try a different search term or use <code>/trending</code> for general tech trends.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        lines = [f"📰 <b>Live News: {_h(query)}</b>\n"]
+        for i, art in enumerate(articles[:8], 1):
+            title = _h(art["title"])
+            source = _h(art.get("source", ""))
+            pub = art.get("published_at", "")[:10]   # YYYY-MM-DD
+            url = art.get("url", "")
+            desc = _h((art.get("description") or "")[:120])
+            if desc:
+                desc = f"\n   <i>{desc}…</i>"
+            lines.append(
+                f"{i}. <b><a href=\"{url}\">{title}</a></b>{desc}\n"
+                f"   📡 {source}  •  🗓 {pub}\n"
+            )
+
+        lines.append(
+            "\n💡 Like a topic? Use <code>/generate_force &lt;title&gt;</code> to write a blog about it!"
+        )
+
+        text = "\n".join(lines)
+        # Telegram max is 4096 chars; split if needed
+        if len(text) > 3800:
+            text = text[:3800] + "\n…"
+
+        await msg.answer(text, parse_mode=ParseMode.HTML,
+                         disable_web_page_preview=True)
+
+    except Exception as exc:
+        logger.exception("_fetch_and_send_news error")
+        await msg.answer(
+            f"❌ News fetch failed: <code>{_h(str(exc)[:200])}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
 
 
 async def _discuss_turn(
