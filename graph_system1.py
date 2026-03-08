@@ -41,6 +41,7 @@ class GenState(TypedDict, total=False):
     niche:                str
     chat_id:              Optional[int]
     max_revisions:        int
+    discussion_context:   str   # optional conversation transcript to shape the blog
 
     # Scout node
     raw_context:          str
@@ -91,6 +92,15 @@ async def writer_node(state: GenState) -> dict:
     logger.info("[Writer] Writing post rev#%d for topic=%r", rev, topic)
 
     context = state.get("raw_context", "")
+
+    # Inject discussion transcript if available
+    disc_ctx = state.get("discussion_context", "")
+    if disc_ctx:
+        context = (
+            f"CONVERSATION CONTEXT (blog should reflect this discussion):\n{disc_ctx}\n\n"
+            f"--- ADDITIONAL RESEARCH ---\n{context}"
+        )
+
     if state.get("revision_notes"):
         context += (
             f"\n\n---\n**REVISION NOTES FROM FACT-CHECKER:**\n{state['revision_notes']}\n"
@@ -249,15 +259,17 @@ async def run_generation_graph(
     niche: str,
     chat_id: int | None = None,
     force: bool = False,
+    discussion_context: str = "",
 ) -> dict:
     """
     Public entry point — called by Telegram /generate, /generate_force, FastAPI, and scheduler.
 
     Args:
-        topic:    Blog topic to write about
-        niche:    Content category / niche
-        chat_id:  Optional Telegram chat ID for push notifications
-        force:    If True, skip duplicate detection and generate anyway
+        topic:              Blog topic to write about
+        niche:              Content category / niche
+        chat_id:            Optional Telegram chat ID for push notifications
+        force:              If True, skip duplicate detection and generate anyway
+        discussion_context: Optional transcript from a /discuss session; shapes the blog
     """
     logger.info("[System1] Starting pipeline  topic=%r  niche=%r  chat=%s  force=%s",
                 topic, niche, chat_id, force)
@@ -286,6 +298,7 @@ async def run_generation_graph(
         "niche":                niche,
         "chat_id":              chat_id,
         "max_revisions":        settings.max_revisions,
+        "discussion_context":   discussion_context,
         "raw_context":          "",
         "draft_markdown":       "",
         "draft_title":          "",

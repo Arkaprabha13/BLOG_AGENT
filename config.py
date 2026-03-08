@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     hashnode_api_token: str = Field(default="", description="Hashnode Personal Access Token")
     hashnode_publication_id: str = Field(default="", description="Hashnode publication / blog ID")
 
+    # ------------------------------------------------------------------ News APIs
+    newsdata_api_key: str = Field(default="", description="NewsData.io API key")
+    newsapi_org_key:  str = Field(default="", description="NewsAPI.org API key")
+    the_news_api_key: str = Field(default="", description="The News API token")
+
     # ------------------------------------------------------------------ Database
     database_url: str = Field(
         ...,

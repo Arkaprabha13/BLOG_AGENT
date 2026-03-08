@@ -57,6 +57,18 @@ router = Router()
 # Slugs awaiting /delete confirmation  { user_id: slug }
 _pending_delete: dict[int, str] = {}
 
+# Discussion sessions  { user_id: {"topic": str, "history": list[dict]} }
+_discussions: dict[int, dict] = {}
+
+_DISCUSS_SYSTEM = """\
+You are a knowledgeable expert and engaging conversationalist helping the user explore
+a topic deeply so it can later be turned into a well-structured blog post.
+Ask thought-provoking follow-up questions, share interesting facts, and highlight
+angles the user might not have considered. Keep replies concise (3-5 sentences max)
+so the conversation stays dynamic. Do NOT write the blog yet — that happens only
+when the user explicitly asks with /writeblog.
+"""
+
 
 # ---------------------------------------------------------------------------
 # HTML helpers
@@ -237,6 +249,12 @@ async def cmd_start(msg: Message):
         "• <code>/generate &lt;topic&gt; [niche]</code> — Create new AI blog\n"
         "• <code>/generate_force &lt;topic&gt; [niche]</code> — Force-generate\n"
         "• <code>/optimize</code> — Run SEO self-healing optimizer\n\n"
+        "<b>📡 News &amp; Recommendations:</b>\n"
+        "• <code>/recommend</code> — Get 5-10 AI-curated blog topic ideas from today's news\n\n"
+        "<b>💬 Discussion → Blog:</b>\n"
+        "• <code>/discuss &lt;topic&gt;</code> — Start an AI conversation on any topic\n"
+        "• <code>/writeblog</code> — Convert your discussion into a published blog\n"
+        "• <code>/enddiscuss</code> — End discussion without publishing\n\n"
         "<b>🔗 Syndication:</b>\n"
         "• <code>/syndicate &lt;slug&gt;</code> — Push post to Dev.to &amp; Hashnode\n\n"
         "<b>🗑 Management:</b>\n"
@@ -523,15 +541,136 @@ async def cmd_trending(msg: Message):
 
 
 # ---------------------------------------------------------------------------
+# /recommend — AI-curated news-based topic suggestions
+# ---------------------------------------------------------------------------
+@router.message(Command("recommend"))
+async def cmd_recommend(msg: Message):
+    await msg.answer(
+        "📡 <b>Fetching today's news and curating blog topics…</b>\n"
+        "<i>This may take 10-20 seconds while I read the news for you.</i>",
+        parse_mode=ParseMode.HTML,
+    )
+    try:
+        from scheduler import scheduler
+        suggestions = await scheduler.recommendation_push(manual=True)
+        if not suggestions:
+            await msg.answer(
+                "⚠️ No suggestions generated right now.\n"
+                "Try <code>/trending</code> for free trending topics instead.",
+                parse_mode=ParseMode.HTML,
+            )
+    except Exception as exc:
+        logger.exception("recommend command error")
+        await msg.answer(
+            f"❌ Recommend error: <code>{_h(str(exc)[:200])}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+# ---------------------------------------------------------------------------
+# /discuss <topic> — Start a multi-turn AI discussion
+# ---------------------------------------------------------------------------
+@router.message(Command("discuss"))
+async def cmd_discuss(msg: Message):
+    parts = (msg.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await msg.answer(
+            "Usage: <code>/discuss &lt;topic&gt;</code>\n"
+            "Example: <code>/discuss quantum computing in education</code>\n\n"
+            "I'll chat with you about it and when ready, use <code>/writeblog</code> "
+            "to turn our discussion into a published blog post!",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    topic   = parts[1].strip()
+    user_id = msg.from_user.id if msg.from_user else 0
+    name    = msg.from_user.first_name if msg.from_user else "friend"
+
+    # Initialise session
+    _discussions[user_id] = {"topic": topic, "history": []}
+
+    # Get first AI message
+    reply = await _discuss_turn(user_id, topic, f"Let's discuss: {topic}")
+    await msg.answer(
+        f"💬 <b>Discussion started: {_h(topic)}</b>\n\n"
+        f"{_h(reply)}\n\n"
+        f"<i>Reply to continue the conversation. Use /writeblog when ready to publish!</i>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ---------------------------------------------------------------------------
+# /writeblog — Convert active discussion into a published blog
+# ---------------------------------------------------------------------------
+@router.message(Command("writeblog"))
+async def cmd_writeblog(msg: Message):
+    user_id = msg.from_user.id if msg.from_user else 0
+    session = _discussions.get(user_id)
+
+    if not session:
+        await msg.answer(
+            "⚠️ No active discussion found.\n"
+            "Start one with <code>/discuss &lt;topic&gt;</code> first!",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    topic   = session["topic"]
+    history = session["history"]
+    chat_id = msg.chat.id
+
+    await msg.answer(
+        f"✍️ <b>Converting our discussion into a blog post…</b>\n"
+        f"📌 Topic: <code>{_h(topic)}</code>\n"
+        f"<i>Researching → Writing → Fact-checking → Publishing…</i>\n"
+        f"You'll get a notification when it's live ✅",
+        parse_mode=ParseMode.HTML,
+    )
+
+    # Build discussion context for the generation graph
+    context_lines = [f"DISCUSSION TOPIC: {topic}\n"]
+    for turn in history:
+        role = "USER" if turn["role"] == "user" else "AI EXPERT"
+        context_lines.append(f"{role}: {turn['content']}")
+    discussion_context = "\n".join(context_lines)
+
+    # Clear session
+    _discussions.pop(user_id, None)
+
+    asyncio.create_task(_run_generation_with_context(topic, "technology", chat_id, discussion_context))
+
+
+# ---------------------------------------------------------------------------
+# /enddiscuss — End discussion session
+# ---------------------------------------------------------------------------
+@router.message(Command("enddiscuss"))
+async def cmd_enddiscuss(msg: Message):
+    user_id = msg.from_user.id if msg.from_user else 0
+    session = _discussions.pop(user_id, None)
+    if session:
+        await msg.answer(
+            f"🚫 <b>Discussion ended.</b>\n"
+            f"Topic: <i>{_h(session['topic'])}</i>\n\n"
+            f"No blog was written. Use <code>/discuss</code> to start a new conversation.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await msg.answer(
+            "ℹ️ No active discussion to end. Use <code>/discuss &lt;topic&gt;</code> to start one.",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+# ---------------------------------------------------------------------------
 # AI Agent — ALL plain text messages
 # ---------------------------------------------------------------------------
 @router.message()
 async def cmd_agent(msg: Message):
     """
-    Handles ALL unmatched messages via Qwen3-32B intent detection.
-    Supports: generate, generate_force, optimize, stats, list, trending,
-              schedule, view <slug>, delete <slug>, syndicate <slug>, chat.
-    Also handles delete confirmations ("yes" / "no").
+    Handles ALL unmatched messages.
+    Routes to discussion mode if user has an active session,
+    otherwise uses Qwen3-32B intent detection.
     """
     from agent import process_message
 
@@ -562,6 +701,17 @@ async def cmd_agent(msg: Message):
                                  parse_mode=ParseMode.HTML)
         else:
             await msg.answer("❌ <b>Deletion cancelled.</b>", parse_mode=ParseMode.HTML)
+        return
+
+    # ── Active discussion routing ──────────────────────────────────────
+    if user_id in _discussions:
+        await msg.bot.send_chat_action(chat_id, "typing")
+        reply = await _discuss_turn(user_id, _discussions[user_id]["topic"], text)
+        await msg.answer(
+            f"{_h(reply)}\n\n"
+            f"<i>Continue talking or use /writeblog to publish • /enddiscuss to stop</i>",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     await msg.bot.send_chat_action(chat_id, "typing")
@@ -691,6 +841,89 @@ async def _fetch_and_send_trending(msg: Message) -> None:
     except Exception as exc:
         await msg.answer(f"❌ Trending fetch failed: <code>{_h(str(exc))}</code>",
                          parse_mode=ParseMode.HTML)
+
+
+async def _discuss_turn(
+    user_id: int,
+    topic: str,
+    user_message: str,
+) -> str:
+    """
+    Handle one turn of a discussion session.
+    Appends to history and returns the AI reply.
+    """
+    session = _discussions.get(user_id)
+    if session is None:
+        return "Session not found. Use /discuss <topic> to start."
+
+    history = session["history"]
+    # Add user message to history
+    history.append({"role": "user", "content": user_message})
+
+    # Build messages list for Groq
+    try:
+        from groq import AsyncGroq
+        from config import get_settings as _gs
+        _s = _gs()
+        client = AsyncGroq(api_key=_s.groq_api_key)
+
+        messages = [
+            {"role": "system", "content": _DISCUSS_SYSTEM + f"\n\nTOPIC: {topic}"},
+        ]
+        # Append history (keep last 20 turns to stay within context limits)
+        messages.extend(history[-20:])
+
+        resp = await client.chat.completions.create(
+            model=_s.groq_model,
+            messages=messages,
+            temperature=0.75,
+            max_tokens=512,
+        )
+        reply = (resp.choices[0].message.content or "").strip()
+    except Exception as exc:
+        logger.warning("[Discuss] Groq call failed: %s", exc)
+        reply = "Sorry, I had trouble thinking of a response. Please try again!"
+
+    # Add AI reply to history
+    history.append({"role": "assistant", "content": reply})
+    return reply
+
+
+async def _run_generation_with_context(
+    topic: str,
+    niche: str,
+    chat_id: int,
+    discussion_context: str,
+) -> None:
+    """
+    Like _run_generation but injects a discussion context string
+    into the generation graph so the blog reflects the conversation.
+    """
+    try:
+        from graph_system1 import run_generation_graph
+        result = await run_generation_graph(
+            topic,
+            niche,
+            chat_id=chat_id,
+            force=True,
+            discussion_context=discussion_context,
+        )
+
+        if not result.get("publish_success"):
+            err = _h(result.get("error_message", "Unknown error"))
+            await push_notification(
+                f"❌ <b>Blog from discussion failed</b> for <code>{_h(topic)}</code>\n"
+                f"<code>{err[:300]}</code>",
+                chat_id,
+            )
+    except Exception as exc:
+        logger.exception("Generation-with-context error")
+        await push_notification(
+            f"❌ <b>Blog from discussion crashed</b> for <code>{_h(topic)}</code>\n"
+            f"<code>{_h(str(exc)[:300])}</code>",
+            chat_id,
+        )
+
 
 
 async def _run_generation(topic: str, niche: str, chat_id: int, force: bool = False):
@@ -848,6 +1081,10 @@ async def start_bot():
         BotCommand(command="view",           description="View a post: /view <slug>"),
         BotCommand(command="generate",       description="Generate a post: /generate topic niche"),
         BotCommand(command="generate_force", description="Force-generate (skip duplicate check)"),
+        BotCommand(command="recommend",      description="Get AI-curated topic suggestions from news"),
+        BotCommand(command="discuss",        description="Start an AI discussion: /discuss <topic>"),
+        BotCommand(command="writeblog",      description="Convert current discussion into a blog"),
+        BotCommand(command="enddiscuss",     description="End discussion without publishing"),
         BotCommand(command="syndicate",      description="Push to Dev.to & Hashnode: /syndicate <slug>"),
         BotCommand(command="delete",         description="Delete a post: /delete <slug>"),
         BotCommand(command="optimize",       description="Run SEO self-healing optimizer"),
