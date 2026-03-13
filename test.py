@@ -233,6 +233,41 @@ async def test_bot_fmt_stats_with_data():
 
 
 # ==========================================================================
+# Test 7b — Bot: _split_html_safe never breaks HTML tags
+# ==========================================================================
+@run
+async def test_split_html_safe():
+    from bot import _split_html_safe
+
+    # Short text → single chunk
+    short = "<b>Hello</b>"
+    assert _split_html_safe(short) == [short]
+
+    # Build a message with several HTML lines that exceeds the limit
+    line = '<b>Title</b> <a href="https://example.com/long-slug">Link</a>\n'
+    big_text = line * 200  # well over 3800 chars
+
+    chunks = _split_html_safe(big_text, limit=500)
+    assert len(chunks) > 1, "should have split into multiple chunks"
+    for idx, chunk in enumerate(chunks):
+        # Each chunk must stay within the limit (or contain a single
+        # oversized line — not the case here since each line is ~60 chars)
+        assert len(chunk) <= 500, (
+            f"chunk {idx} too long ({len(chunk)} chars)"
+        )
+        # Every opening tag must be closed within the same chunk
+        assert chunk.count("<b>") == chunk.count("</b>"), (
+            f"chunk {idx} has mismatched <b> tags"
+        )
+        assert chunk.count("<a ") == chunk.count("</a>"), (
+            f"chunk {idx} has mismatched <a> tags"
+        )
+
+    # Rejoining chunks must reproduce the original content
+    assert "\n".join(chunks).strip() == big_text.strip()
+
+
+# ==========================================================================
 # Test 8 — graph_system1: TypedDict state schema defined correctly
 # ==========================================================================
 @run
@@ -423,6 +458,7 @@ async def main():
         test_config_env_values,
         test_bot_html_formatting,
         test_bot_fmt_stats_with_data,
+        test_split_html_safe,
         test_graph1_state_typedef,
         test_graph1_nodes_receive_full_state,
         test_graph2_state_typedef,

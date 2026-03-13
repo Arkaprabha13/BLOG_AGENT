@@ -193,15 +193,11 @@ class DailyScheduler:
         lines.append("\n💬 <i>Just send a /generate_force command above to publish!</i>")
 
         try:
-            from bot import push_notification
+            from bot import push_notification, _split_html_safe
             msg = "\n".join(lines)
             # Split if too long for Telegram (4096 char limit)
-            if len(msg) > 3800:
-                chunks = [msg[i:i+3800] for i in range(0, len(msg), 3800)]
-                for chunk in chunks:
-                    await push_notification(chunk, chat_id=None)
-            else:
-                await push_notification(msg, chat_id=None)
+            for chunk in _split_html_safe(msg):
+                await push_notification(chunk, chat_id=None)
         except Exception as exc:
             logger.warning("[Scheduler] Recommendation notify failed: %s", exc)
 
