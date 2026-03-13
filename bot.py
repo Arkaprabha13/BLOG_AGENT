@@ -77,6 +77,40 @@ def _h(text) -> str:
     return html_mod.escape(str(text or ""))
 
 
+def _split_html_safe(text: str, limit: int = 3800) -> list[str]:
+    """Split *text* into chunks that respect newline boundaries.
+
+    Naively slicing at every *limit* characters can cut an HTML tag in half
+    (e.g. ``<a href="…">``), which causes Telegram to reject the message with
+    ``TelegramBadRequest: can't parse entities: Unclosed start tag``.
+
+    This helper splits on ``\\n`` boundaries so every chunk contains only
+    complete lines — and therefore complete HTML tags, since we always build
+    messages line-by-line.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in text.split("\n"):
+        # +1 accounts for the newline character we'll re-join with
+        line_len = len(line) + 1
+        if current and current_len + line_len > limit:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
+
+
 def _platform_links(b: dict) -> str:
     """Build clickable platform link pills for a blog dict."""
     parts = []
@@ -369,14 +403,9 @@ async def cmd_stats(msg: Message):
     )
     try:
         text = await _fetch_comprehensive_stats()
-        # Split if too long for one Telegram message
-        if len(text) > 3800:
-            chunks = [text[i:i+3800] for i in range(0, len(text), 3800)]
-            for chunk in chunks:
-                await msg.answer(chunk, parse_mode=ParseMode.HTML,
-                                 disable_web_page_preview=True)
-        else:
-            await msg.answer(text, parse_mode=ParseMode.HTML,
+        # Split if too long for one Telegram message (safe on newline boundaries)
+        for chunk in _split_html_safe(text):
+            await msg.answer(chunk, parse_mode=ParseMode.HTML,
                              disable_web_page_preview=True)
     except Exception as exc:
         logger.exception("stats command error")
@@ -770,12 +799,8 @@ async def cmd_agent(msg: Message):
         )
         try:
             text = await _fetch_comprehensive_stats()
-            if len(text) > 3800:
-                for chunk in [text[i:i+3800] for i in range(0, len(text), 3800)]:
-                    await msg.answer(chunk, parse_mode=ParseMode.HTML,
-                                     disable_web_page_preview=True)
-            else:
-                await msg.answer(text, parse_mode=ParseMode.HTML,
+            for chunk in _split_html_safe(text):
+                await msg.answer(chunk, parse_mode=ParseMode.HTML,
                                  disable_web_page_preview=True)
         except Exception as exc:
             await msg.answer(f"❌ Stats error: <code>{_h(str(exc))}</code>",
